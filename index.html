@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Robot Intelligence Lectures · RT604</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --blue:    #1F4E79;
+      --blue-lt: #4A7FB5;
+      --accent:  #D9531E;
+      --bg:      #F2F4F7;
+      --sidebar: 270px;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: #222;
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ── Sidebar ── */
+    nav {
+      width: var(--sidebar);
+      background: var(--blue);
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+      overflow-y: auto;
+    }
+
+    .nav-header {
+      padding: 1.4rem 1.1rem 1rem;
+      border-bottom: 1px solid rgba(255,255,255,.12);
+    }
+    .nav-header h1 {
+      font-size: 1rem;
+      font-weight: 700;
+      line-height: 1.35;
+      letter-spacing: -.01em;
+    }
+    .nav-header p {
+      margin-top: .4rem;
+      font-size: .72rem;
+      opacity: .55;
+      line-height: 1.5;
+    }
+
+    .nav-section { padding: .7rem 0 .4rem; }
+    .nav-section-label {
+      padding: .3rem 1.1rem;
+      font-size: .65rem;
+      text-transform: uppercase;
+      letter-spacing: .09em;
+      opacity: .45;
+      font-weight: 600;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+      padding: .52rem 1.1rem;
+      font-size: .82rem;
+      opacity: .8;
+      cursor: pointer;
+      border-left: 3px solid transparent;
+      transition: background .12s, opacity .12s, border-color .12s;
+      user-select: none;
+    }
+    .nav-item:hover  { background: rgba(255,255,255,.09); opacity: 1; }
+    .nav-item.active { background: rgba(255,255,255,.13); opacity: 1; border-left-color: var(--accent); }
+    .nav-item .icon  { font-size: 1em; flex-shrink: 0; }
+
+    .nav-footer {
+      margin-top: auto;
+      padding: .9rem 1.1rem;
+      font-size: .68rem;
+      opacity: .35;
+      border-top: 1px solid rgba(255,255,255,.1);
+      line-height: 1.6;
+    }
+    .nav-footer a { color: #fff; }
+
+    /* ── Main area ── */
+    main {
+      flex: 1;
+      overflow-y: auto;
+      background: var(--bg);
+      scroll-behavior: smooth;
+    }
+
+    #toolbar {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: #fff;
+      border-bottom: 1px solid #dde1e7;
+      padding: .55rem 1.2rem;
+      display: flex;
+      align-items: center;
+      gap: .9rem;
+      font-size: .8rem;
+      color: #555;
+    }
+    #toolbar strong { color: #222; font-size: .85rem; }
+    #toolbar span   { margin-left: auto; opacity: .6; }
+
+    #viewer {
+      max-width: 960px;
+      margin: 1.6rem auto 3rem;
+      padding: 0 1.2rem;
+    }
+
+    .page-wrap {
+      position: relative;
+      margin-bottom: .6rem;
+    }
+    .page-wrap canvas {
+      width: 100%;
+      display: block;
+      border-radius: 4px;
+      box-shadow: 0 2px 14px rgba(0,0,0,.13);
+      background: #fff;
+    }
+    .page-num {
+      position: absolute;
+      bottom: .4rem;
+      right: .6rem;
+      font-size: .65rem;
+      background: rgba(0,0,0,.38);
+      color: #fff;
+      padding: .15rem .45rem;
+      border-radius: 3px;
+      pointer-events: none;
+    }
+
+    #status {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 60vh;
+      color: #8a9ab0;
+      gap: .7rem;
+      font-size: .9rem;
+    }
+    #status .big { font-size: 2.5rem; }
+
+    .progress-bar {
+      width: 220px;
+      height: 3px;
+      background: #dde1e7;
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 2px;
+      transition: width .15s;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Sidebar ── -->
+<nav>
+  <div class="nav-header">
+    <h1>Robot Intelligence<br>Lectures</h1>
+    <p>RT604 · Spring 2026<br>APRL, DGIST · Giseop Kim</p>
+  </div>
+
+  <div class="nav-section">
+    <div class="nav-section-label">Lec 01 · VLA</div>
+    <div class="nav-item" data-pdf="pdf/lec01_vla_lecture.pdf" data-title="Lec 01 · VLA 모델 — 강의 슬라이드">
+      <span class="icon">📊</span> 강의 슬라이드
+    </div>
+    <div class="nav-item" data-pdf="pdf/lec01_vla_script.pdf" data-title="Lec 01 · VLA 모델 — 발표 대본">
+      <span class="icon">📝</span> 발표 대본
+    </div>
+  </div>
+
+  <div class="nav-section">
+    <div class="nav-section-label">Lec 02 · JEPA</div>
+    <div class="nav-item" data-pdf="pdf/lec02_vla_lecture.pdf" data-title="Lec 02 · JEPA & 세계 모델 — 강의 슬라이드">
+      <span class="icon">📊</span> 강의 슬라이드
+    </div>
+    <div class="nav-item" data-pdf="pdf/lec02_vla_script.pdf" data-title="Lec 02 · JEPA & 세계 모델 — 발표 대본">
+      <span class="icon">📝</span> 발표 대본
+    </div>
+  </div>
+
+  <div class="nav-footer">
+    Based on <a href="https://www.youtube.com/@WelchLabs" target="_blank">Welch Labs</a> videos.<br>
+    <a href="https://github.com/gisbi-kim/robot-intelligence-lectures" target="_blank">GitHub ↗</a>
+  </div>
+</nav>
+
+<!-- ── Main ── -->
+<main id="main">
+  <div id="toolbar" style="display:none">
+    <strong id="toolbar-title"></strong>
+    <span id="toolbar-pages"></span>
+  </div>
+
+  <div id="status">
+    <span class="big">🤖</span>
+    <span>왼쪽 메뉴에서 강의를 선택하세요</span>
+  </div>
+
+  <div id="viewer"></div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs" type="module"></script>
+<script type="module">
+  const { getDocument, GlobalWorkerOptions } = await import(
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs'
+  );
+  GlobalWorkerOptions.workerSrc =
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.worker.min.mjs';
+
+  const viewer   = document.getElementById('viewer');
+  const status   = document.getElementById('status');
+  const toolbar  = document.getElementById('toolbar');
+  const tbTitle  = document.getElementById('toolbar-title');
+  const tbPages  = document.getElementById('toolbar-pages');
+  const main     = document.getElementById('main');
+
+  let cancelToken = null;
+
+  async function loadPDF(url, title) {
+    // cancel in-progress render
+    if (cancelToken) cancelToken.cancelled = true;
+    const token = { cancelled: false };
+    cancelToken = token;
+
+    viewer.innerHTML = '';
+    toolbar.style.display = 'none';
+    status.innerHTML = `
+      <span class="big">⏳</span>
+      <span>로딩 중…</span>
+      <div class="progress-bar"><div class="progress-fill" id="prog" style="width:0%"></div></div>`;
+    status.style.display = 'flex';
+    main.scrollTo(0, 0);
+
+    try {
+      const pdf = await getDocument(url).promise;
+      if (token.cancelled) return;
+
+      const n = pdf.numPages;
+      tbTitle.textContent = title;
+      tbPages.textContent = `${n}페이지`;
+      toolbar.style.display = 'flex';
+      status.style.display = 'none';
+
+      const DPR = Math.min(window.devicePixelRatio || 1, 2);
+      const targetW = viewer.offsetWidth * DPR;
+
+      for (let i = 1; i <= n; i++) {
+        if (token.cancelled) return;
+
+        const page = await pdf.getPage(i);
+        const vp0  = page.getViewport({ scale: 1 });
+        const scale = targetW / vp0.width;
+        const vp   = page.getViewport({ scale });
+
+        const wrap  = document.createElement('div');
+        wrap.className = 'page-wrap';
+        const canvas = document.createElement('canvas');
+        canvas.width  = vp.width;
+        canvas.height = vp.height;
+        const num = document.createElement('div');
+        num.className = 'page-num';
+        num.textContent = `${i} / ${n}`;
+        wrap.appendChild(canvas);
+        wrap.appendChild(num);
+        viewer.appendChild(wrap);
+
+        await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+
+        // update progress while loading
+        const prog = document.getElementById('prog');
+        if (prog) prog.style.width = `${Math.round(i / n * 100)}%`;
+      }
+    } catch (err) {
+      if (!token.cancelled) {
+        status.innerHTML = `<span class="big">⚠️</span><span>오류: ${err.message}</span>`;
+        status.style.display = 'flex';
+      }
+    }
+  }
+
+  // nav click handler
+  document.querySelectorAll('.nav-item').forEach(item => {
+    item.addEventListener('click', () => {
+      document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+      item.classList.add('active');
+      loadPDF(item.dataset.pdf, item.dataset.title);
+    });
+  });
+
+  // auto-load first item
+  const first = document.querySelector('.nav-item');
+  first.classList.add('active');
+  loadPDF(first.dataset.pdf, first.dataset.title);
+</script>
+</body>
+</html>
