@@ -165,7 +165,6 @@
       overflow: hidden;
       line-height: 1;
       z-index: 1;
-      pointer-events: none;
     }
     .textLayer span,
     .textLayer br {
@@ -174,7 +173,7 @@
       white-space: pre;
       cursor: text;
       transform-origin: 0% 0%;
-      pointer-events: auto;
+      user-select: text;
     }
     .textLayer ::selection      { background: rgba(0,100,255,.25); color: transparent; }
     .textLayer ::-moz-selection { background: rgba(0,100,255,.25); color: transparent; }
@@ -269,9 +268,9 @@
 </main>
 
 <script type="module">
-  const { getDocument, GlobalWorkerOptions, renderTextLayer } = await import(
-    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs'
-  );
+  const pdfjsLib = await import('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs');
+  const { getDocument, GlobalWorkerOptions } = pdfjsLib;
+  const renderTextLayer = pdfjsLib.renderTextLayer ?? pdfjsLib.default?.renderTextLayer;
   GlobalWorkerOptions.workerSrc =
     'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.worker.min.mjs';
 
@@ -354,12 +353,11 @@
         if (token.cancelled) return;
 
         // text layer — fire and forget so it doesn't block visual rendering
-        if (typeof renderTextLayer === 'function') {
-          page.getTextContent().then(textContent => {
-            if (token.cancelled) return;
-            try {
-              renderTextLayer({ textContentSource: textContent, container: textLayerDiv, viewport: vpCSS });
-            } catch (_) {}
+        if (typeof renderTextLayer === 'function' && !token.cancelled) {
+          renderTextLayer({
+            textContentSource: page.streamTextContent(),
+            container: textLayerDiv,
+            viewport: vpCSS,
           });
         }
 
