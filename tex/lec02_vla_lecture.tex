@@ -1,0 +1,922 @@
+\documentclass[aspectratio=169,10pt]{beamer}
+\usetheme{metropolis}
+\metroset{block=fill, sectionpage=progressbar}
+\setbeamersize{text margin left=0.7cm, text margin right=0.7cm}
+\usepackage{fontspec}
+\setmainfont{Noto Serif CJK KR}
+\setsansfont{Noto Sans CJK KR}
+\setmonofont{DejaVu Sans Mono}
+\usepackage{amsmath, amssymb}
+\usepackage{tikz}
+\usetikzlibrary{positioning, arrows.meta, shapes.geometric, fit, backgrounds, calc}
+\usepackage{booktabs}
+\usepackage{xcolor}
+
+\definecolor{aprlblue}{HTML}{1F4E79}
+\definecolor{aprllight}{HTML}{4A7FB5}
+\definecolor{aprlaccent}{HTML}{D9531E}
+\definecolor{aprlgray}{HTML}{4A4A4A}
+\definecolor{aprlbg}{HTML}{F2F4F7}
+
+\setbeamercolor{frametitle}{bg=aprlblue, fg=white}
+\setbeamercolor{title separator}{fg=aprlaccent}
+\setbeamercolor{progress bar}{fg=aprlaccent, bg=aprlbg}
+\setbeamercolor{alerted text}{fg=aprlaccent}
+
+\title{LeCun의 JEPA와 세계 모델}
+\subtitle{LLM 너머의 로봇 지능을 향해}
+\author{Giseop Kim}
+\institute{APRL, DGIST \quad $\cdot$ \quad RT604 Spring 2026}
+\date{}
+
+\begin{document}
+
+{
+\setbeamertemplate{footline}{}
+\begin{frame}[plain]
+\vspace*{1.5cm}
+\begin{center}
+{\LARGE\textbf{LeCun의 JEPA와 세계 모델}}\\[0.3cm]
+{\large LLM 너머의 로봇 지능을 향해}\\[1.5cm]
+\textbf{Giseop Kim}\\[0.2cm]
+{\small APRL, DGIST}\\[0.1cm]
+{\small RT604 \textperiodcentered{} Spring 2026}
+\end{center}
+\end{frame}
+}
+
+% ============================================================
+\begin{frame}{오늘 다룰 것}
+\begin{enumerate}
+  \item \textbf{LeCun의 도발}: JEPA가 무엇이고 왜 주목해야 하는가
+  \item \textbf{역사: CNN $\to$ 자기지도학습}: 라벨 병목과 케이크 슬라이드
+  \item \textbf{LLM의 탄생}: 트랜스포머와 다음 토큰 예측이 성공한 이유
+  \item \textbf{흐릿함의 문제}: 왜 생성형 방식이 영상에서 실패했나
+  \item \textbf{결합 임베딩과 샴 신경망}: 생성 없이 표현 배우기
+  \item \textbf{표현 붕괴와 Barlow Twins}: 게으른 답을 막는 법
+  \item \textbf{DINO 계열}: 자기지도학습이 지도학습을 따라잡다
+  \item \textbf{JEPA 아키텍처}: 결합 임베딩 + 예측기 = 세계 모델
+  \item \textbf{전망}: JEPA가 LLM을 대체할 것인가
+\end{enumerate}
+
+\vspace{0.8em}
+\footnotesize
+\textit{전제 지식}: Transformer 기초, CNN, 임베딩 개념, 확률 분포
+\end{frame}
+
+% ============================================================
+\section{Part 1. LeCun의 도발과 JEPA}
+
+\begin{frame}{10억 달러짜리 베팅: 한 마디에서 시작하다}
+\begin{columns}[T]
+\begin{column}{0.55\textwidth}
+\begin{block}{LeCun의 도발 (2024)}
+\textit{``에이전트 시스템을 만들겠다면서, 자기 행동의 \textbf{결과를 예측할 능력조차 없는} 시스템을 떠올린다는 게 도무지 이해가 안 됩니다.''}
+\end{block}
+
+\vspace{0.6em}
+\textbf{LLM의 근본 한계 (LeCun 시각)}
+\begin{itemize}
+  \item LLM은 \emph{언어}를 잘 다루지만, 그게 전부
+  \item 물리 세계를 \alert{모델링하지 않음}
+  \item 자기 행동의 결과를 사전에 \alert{예측 불가}
+  \item ``après moi, le déluge'' (행동 후 결과는 모름)
+\end{itemize}
+\end{column}
+\begin{column}{0.45\textwidth}
+\textbf{그의 베팅}
+\begin{itemize}
+  \item Meta 수석 AI 과학자 역임
+  \item 최근 10억 달러 조성
+  \item \alert{LLM 백본 없는} AI 추구
+  \item 핵심 아이디어: \textbf{JEPA}
+\end{itemize}
+
+\vspace{0.8em}
+\begin{tikzpicture}[font=\scriptsize, node distance=0.4cm]
+\node[draw, rounded corners, fill=aprlaccent!20, minimum width=3.2cm, minimum height=0.6cm] (q) {``LLM이 VLA를 대체할까?''};
+\node[draw, rounded corners, fill=aprlblue!20, below=0.3cm of q, minimum width=3.2cm, minimum height=0.6cm] (a) {``결국 LLM은 대체될 것''};
+\draw[->, thick] (q) -- (a);
+\end{tikzpicture}
+\end{column}
+\end{columns}
+\end{frame}
+
+% ============================================================
+\begin{frame}{JEPA: 아이디어의 핵심}
+\textbf{JEPA = Joint Embedding Predictive Architecture}
+
+\vspace{0.5em}
+기존 ML의 공식: 입력 $X$ $\to$ 출력 $Y$ 직접 예측
+
+\vspace{0.3em}
+\begin{center}
+\begin{tikzpicture}[font=\footnotesize, node distance=0.6cm]
+% Standard approach
+\node[draw, fill=aprlbg, rounded corners, minimum width=2.2cm, minimum height=0.65cm] (x) {입력 $X$};
+\node[draw, fill=aprllight!30, rounded corners, right=0.8cm of x, minimum width=2.2cm, minimum height=0.65cm] (model) {모델};
+\node[draw, fill=aprlbg, rounded corners, right=0.8cm of model, minimum width=2.2cm, minimum height=0.65cm] (y) {출력 $Y$};
+\draw[->, thick] (x) -- (model);
+\draw[->, thick] (model) -- (y);
+\node[above=0.05cm of model, font=\tiny, aprlgray] {(LLM, CNN, …)};
+
+% JEPA
+\node[below=1.2cm of x, draw, fill=aprlbg, rounded corners, minimum width=2cm, minimum height=0.65cm] (x2) {입력 $X$};
+\node[below=1.2cm of y, draw, fill=aprlbg, rounded corners, minimum width=2cm, minimum height=0.65cm] (y2) {컨텍스트 $Y$};
+
+\node[draw, fill=aprllight!40, rounded corners, below right=0.5cm and -0.2cm of x2, minimum width=1.7cm, minimum height=0.6cm] (encx) {인코더};
+\node[draw, fill=aprllight!40, rounded corners, below left=0.5cm and -0.2cm of y2, minimum width=1.7cm, minimum height=0.6cm] (ency) {인코더};
+
+\node[draw, fill=aprlaccent!30, rounded corners, below=0.5cm of encx, xshift=1.8cm, minimum width=1.8cm, minimum height=0.6cm] (pred) {예측기};
+
+\draw[->, thick] (x2) -- (encx);
+\draw[->, thick] (y2) -- (ency);
+\draw[->, thick] (encx) -- (pred) node[midway, below, font=\tiny]{$\hat{z}_X$};
+\draw[->, thick, dashed, aprlaccent] (pred) -- (ency) node[midway, right, font=\tiny, aprlaccent]{예측 $\hat{z}_Y$};
+\node[right=0.05cm of ency, font=\tiny, aprlaccent]{목표 $z_Y$};
+
+\node[left=0.1cm of x2, font=\tiny, aprlgray, align=right]{JEPA};
+\end{tikzpicture}
+\end{center}
+
+\vspace{0.3em}
+\begin{block}{핵심 차이}
+픽셀/토큰 수준이 아닌, \textbf{추상화된 표현 공간(latent space)}에서 예측.\\
+모델은 $Y$의 픽셀을 \emph{생성하지 않는다}.
+\end{block}
+\end{frame}
+
+% ============================================================
+\section{Part 2. CNN에서 자기지도학습까지}
+
+\begin{frame}{LeCun의 역사: 혁명을 두 번 예감한 사람}
+\begin{columns}[T]
+\begin{column}{0.55\textwidth}
+\textbf{1989년: CNN 개척}
+\begin{itemize}
+  \item 대부분은 \textit{전문가 시스템}에 집중 (규칙 기반)
+  \item LeCun: 데이터에서 직접 학습 주장
+  \item LeNet으로 손글씨 인식 구현
+  \item AT\&T 수표 판독 시스템에 실제 배포
+\end{itemize}
+
+\vspace{0.5em}
+\textbf{2012년: AlexNet과 딥러닝 부흥}
+\begin{itemize}
+  \item LeCun의 CNN과 \alert{놀라울 만큼 유사}
+  \item ImageNet top-5 오류율: 26.2\% $\to$ 15.3\%
+  \item 전문가 시스템의 시대 종언
+\end{itemize}
+\end{column}
+\begin{column}{0.45\textwidth}
+\begin{tikzpicture}[font=\scriptsize, node distance=0.3cm]
+\fill[aprlbg] (0,0) rectangle (4.5,5.2);
+\foreach \y/\lab/\col in {4.7/1989: LeNet/aprlgray!50, 3.7/2012: AlexNet/aprlgray!50, 2.7/2015: 케이크 슬라이드/aprllight!50, 1.7/2022: JEPA 논문/aprlaccent!30, 0.7/2024: 10억 달러 펀딩/aprlaccent!50} {
+  \draw[fill=\col, draw=aprlgray!60, rounded corners=2pt] (0.2,\y-0.3) rectangle (4.3,\y+0.3);
+  \node[font=\scriptsize] at (2.25,\y) {\lab};
+}
+\draw[aprlgray!60, line width=1pt] (0.55,4.4) -- (0.55,1.0);
+\end{tikzpicture}
+\end{column}
+\end{columns}
+\end{frame}
+
+% ============================================================
+\begin{frame}{라벨 병목: 지도학습의 한계}
+\textbf{AlexNet의 성공 공식}
+\[
+\text{대용량 데이터(ImageNet)} \;+\; \text{CNN} \;+\; \text{GPU} \;\to\; \text{성능 돌파}
+\]
+
+\vspace{0.3em}
+\textbf{치명적 의존성}: ImageNet의 모든 이미지에는 \alert{사람이 직접 붙인 라벨}이 있다.
+
+\vspace{0.5em}
+\begin{columns}[T]
+\begin{column}{0.48\textwidth}
+\textbf{사람 아이}
+\begin{itemize}
+  \item ``강아지'' 개념 학습에 \\명시 라벨 \alert{거의 필요 없음}
+  \item 몇 번 보면 일반화
+  \item 자율적으로 개념 형성
+\end{itemize}
+\end{column}
+\begin{column}{0.48\textwidth}
+\textbf{딥러닝 모델}
+\begin{itemize}
+  \item 수십만 개 라벨 이미지 필요
+  \item 라벨 수집 = 비용·시간 병목
+  \item 라벨 없는 데이터는 버림
+\end{itemize}
+\end{column}
+\end{columns}
+
+\vspace{0.8em}
+\begin{alertblock}{방향의 전환}
+라벨 없이 스스로 학습하는 \textbf{자기지도학습(self-supervised learning)}으로 눈을 돌림.
+\end{alertblock}
+\end{frame}
+
+% ============================================================
+\begin{frame}{LeCun의 케이크 슬라이드 (2015$\sim$)}
+\begin{center}
+\begin{tikzpicture}[font=\footnotesize]
+% Cake
+\fill[aprlaccent!60] (0,0) arc(180:0:3) -- (6,0) -- cycle;
+\fill[aprlaccent!20] (0,0) -- (6,0) -- (5,0.3) -- (1,0.3) -- cycle;
+\node[white, font=\small\bfseries] at (3,0.9) {케이크 본체: 자기지도학습 (Self-supervised)};
+
+\fill[aprllight!60] (0.8,1.3) arc(180:0:2.2) -- (5.2,1.3) -- cycle;
+\fill[aprllight!20] (0.8,1.3) -- (5.2,1.3) -- (4.7,1.55) -- (1.3,1.55) -- cycle;
+\node[white, font=\scriptsize\bfseries] at (3,1.9) {아이싱: 지도학습 (Supervised)};
+
+\fill[aprlblue!70] (2.1,2.5) arc(180:0:0.9) -- (4.8,2.5) -- cycle;
+\node[white, font=\tiny\bfseries] at (3,2.8) {체리: RL};
+\end{tikzpicture}
+\end{center}
+
+\vspace{0.3em}
+\begin{columns}[T]
+\begin{column}{0.48\textwidth}
+\textbf{LeCun의 예언 (2015)}
+\begin{itemize}
+  \item 자기지도학습이 핵심 엔진이 될 것
+  \item RL만으로는 인간 수준 불가
+  \item 실제로 이 순서로 성공
+\end{itemize}
+\end{column}
+\begin{column}{0.48\textwidth}
+\textbf{아이러니}
+\begin{itemize}
+  \item 자기지도학습이 \alert{언어에서 먼저 폭발}
+  \item 비전이 아닌 텍스트에서 LLM 탄생
+  \item 왜? $\to$ 다음 Part에서
+\end{itemize}
+\end{column}
+\end{columns}
+\end{frame}
+
+% ============================================================
+\section{Part 3. LLM의 탄생: 다음 토큰 예측}
+
+\begin{frame}{트랜스포머와 GPT-1 (2018)}
+\textbf{OpenAI의 전략 전환}
+\begin{itemize}
+  \item 초기: 강화학습 중심 (Gym, Universe, 아타리)
+  \item 수츠케버·래드퍼드: Google의 \textbf{트랜스포머}에 주목 (원래 기계 번역용)
+\end{itemize}
+
+\vspace{0.5em}
+\textbf{핵심 아이디어: 자기지도 사전학습}
+\begin{center}
+\begin{tikzpicture}[font=\footnotesize, node distance=0.5cm]
+\node[draw, fill=aprlbg, rounded corners, minimum width=2.8cm, minimum height=0.7cm] (in) {텍스트 시퀀스 $t_1,\ldots,t_n$};
+\node[draw, fill=aprllight!30, rounded corners, right=0.8cm of in, minimum width=2.8cm, minimum height=0.7cm] (tr) {트랜스포머};
+\node[draw, fill=aprlaccent!20, rounded corners, right=0.8cm of tr, minimum width=2.8cm, minimum height=0.7cm] (out) {다음 토큰 $t_{n+1}$ 예측};
+\draw[->, thick] (in) -- (tr);
+\draw[->, thick] (tr) -- (out);
+\node[below=0.1cm of in, font=\tiny, aprlgray] {책 7,000권 코퍼스};
+\node[below=0.1cm of out, font=\tiny, aprlaccent] {라벨 없음 (데이터 자체가 라벨)};
+\end{tikzpicture}
+\end{center}
+
+\vspace{0.3em}
+\textbf{결과}: 9개 언어 벤치마크에서 새 SOTA \\
+--- 과제별로 설계된 전문 모델들을 \emph{모두} 제침
+
+\vspace{0.3em}
+\begin{block}{GPT-1이 열어준 것}
+사람이 만든 라벨 없이, \textbf{인터넷의 모든 텍스트}를 학습 신호로 쓸 수 있게 됨\\
+$\Rightarrow$ 전례 없는 \alert{스케일링}의 문이 열림
+\end{block}
+\end{frame}
+
+% ============================================================
+\begin{frame}{GPT 스케일링: 2012$\to$2020}
+\begin{center}
+\begin{tabular}{lccc}
+\toprule
+모델 & 연도 & 파라미터 & 학습 예시 수 \\
+\midrule
+AlexNet & 2012 & 60 M & $\sim$1 M \\
+GPT-1 & 2018 & 117 M & $\sim$1 B (토큰) \\
+GPT-2 & 2019 & 1.5 B & $\sim$40 B \\
+GPT-3 & 2020 & 175 B & $\sim$300 B \\
+ChatGPT 기반 & 2022 & 175 B+ & $+$RLHF fine-tune \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\vspace{0.5em}
+\textbf{학습 패러다임: LeCun의 케이크와 정확히 일치}
+\begin{enumerate}
+  \item \alert{자기지도 사전학습} (다음 토큰 예측, 방대한 텍스트)
+  \item \textbf{지도학습} fine-tune (라벨 달린 소량 데이터)
+  \item \textbf{강화학습} (RLHF: 인간 피드백으로 정렬)
+\end{enumerate}
+
+\vspace{0.3em}
+\footnotesize
+\textit{아이러니}: LeCun이 그린 그림이 \alert{비전이 아닌 언어에서} 먼저 실현.
+왜 비전은 달랐는가? $\to$ 다음 Part.
+\end{frame}
+
+% ============================================================
+\begin{frame}{사전학습이 배운 것의 본질}
+\textbf{다음 토큰 예측} 자체는 \emph{프록시 태스크(proxy task)}에 불과하다.
+
+\vspace{0.4em}
+진짜 가치: 이 과제를 잘 풀기 위해 모델 내부에 형성된 \alert{\textbf{표현(representation)}}
+
+\vspace{0.6em}
+\begin{columns}[T]
+\begin{column}{0.48\textwidth}
+\textbf{프록시 태스크}
+\begin{itemize}
+  \item ``다음 단어가 뭐지?''
+  \item 겉보기에 단순한 자동완성
+  \item 그러나 이것을 잘 하려면…
+\end{itemize}
+\end{column}
+\begin{column}{0.48\textwidth}
+\textbf{내부에서 학습된 것}
+\begin{itemize}
+  \item 인과 관계, 사실 지식
+  \item 논리 추론, 유추
+  \item 코딩, 수학 등 고차 능력
+\end{itemize}
+\end{column}
+\end{columns}
+
+\vspace{0.8em}
+\begin{block}{핵심 통찰}
+생성 능력 자체보다 \textbf{학습된 내부 표현}이 LLM 성공의 진짜 원천.\\
+그렇다면 \emph{생성 없이}도 좋은 표현을 얻을 수 있지 않을까?
+\end{block}
+\end{frame}
+
+% ============================================================
+\section{Part 4. 영상의 흐릿함 문제}
+
+\begin{frame}{픽셀 생성: 왜 영상은 텍스트와 다른가}
+\textbf{GPT 방식을 영상에 그대로 적용하면?}
+
+\vspace{0.3em}
+\begin{center}
+비디오 프레임 시퀀스 $f_1, f_2, \ldots, f_t$ $\to$ 다음 프레임 $f_{t+1}$ 예측 (픽셀 단위)
+\end{center}
+
+\vspace{0.3em}
+\textbf{언어의 출력 공간}
+\begin{itemize}
+  \item 고정된 어휘: GPT-2 기준 \alert{50,257} 개의 이산 토큰
+  \item 각 토큰에 독립적 확률 부여 가능
+  \item ``왼쪽'' 40\%, ``오른쪽'' 40\%, ``위'' 20\% $\to$ OK
+\end{itemize}
+
+\vspace{0.4em}
+\textbf{영상의 출력 공간}
+\begin{itemize}
+  \item Full HD: 1920 $\times$ 1080 $\times$ 3 픽셀, 각 픽셀 $\in [0,255]$
+  \item 가능한 다음 프레임 수: $\approx 256^{1920 \times 1080 \times 3} = 10^{15{,}000{,}000}$
+  \item 관측 가능한 우주의 원자 수: $\approx 10^{80}$
+  \item \alert{완전 열거 불가능}
+\end{itemize}
+\end{frame}
+
+% ============================================================
+\begin{frame}{평균화 = 흐릿함}
+\textbf{실제 구현}: 픽셀 강도를 신경망이 실수값으로 직접 예측 (회귀)
+
+\vspace{0.4em}
+\textbf{불확실성 앞에서 손실을 최소화하는 가장 쉬운 답}:
+\[
+\hat{f}_{t+1} = \mathbb{E}[\,f_{t+1} \mid f_1, \ldots, f_t\,] \quad \text{(가능한 결과들의 \alert{평균})}
+\]
+
+\vspace{0.2em}
+\begin{columns}[T]
+\begin{column}{0.48\textwidth}
+\textbf{언어 모델} (``공이 \_\_로 갔다'')
+\begin{itemize}
+  \item 토큰이 분리됨
+  \item ``왼쪽'' 확률 $\uparrow$, ``오른쪽'' 확률 $\uparrow$
+  \item 두 가능성 독립적 갱신 가능
+  \item 결과: 명확한 분포
+\end{itemize}
+\end{column}
+\begin{column}{0.48\textwidth}
+\textbf{영상 모델} (공이 어느 방향으로?)
+\begin{itemize}
+  \item 하나의 출력 프레임 직접 예측
+  \item 왼쪽 공 + 오른쪽 공 \alert{픽셀 평균}
+  \item 결과: 공이 \emph{두 곳에 반쯤} 있는 이미지
+  \item \textbf{흐릿하고 비현실적}
+\end{itemize}
+\end{column}
+\end{columns}
+
+\vspace{0.5em}
+\begin{alertblock}{근본적 질문}
+꼭 생성형 아키텍처여야 하는가? 좋은 \textbf{내부 표현}을 생성 없이 얻을 수 없는가?
+\end{alertblock}
+\end{frame}
+
+% ============================================================
+\section{Part 5. 결합 임베딩과 샴 신경망}
+
+\begin{frame}{비생성적 표현 학습: 아이디어의 전환}
+\begin{center}
+\begin{tikzpicture}[font=\footnotesize, node distance=0.5cm]
+% Generative
+\node[font=\small\bfseries, aprlgray] (g_title) {생성형 (GPT 방식)};
+\node[draw, fill=aprlbg, rounded corners, below=0.2cm of g_title, minimum width=2cm, minimum height=0.6cm] (x_g) {입력 $X$};
+\node[draw, fill=aprllight!30, rounded corners, below=0.3cm of x_g, minimum width=2cm, minimum height=0.6cm] (model_g) {모델};
+\node[draw, fill=aprlaccent!20, rounded corners, below=0.3cm of model_g, minimum width=2cm, minimum height=0.6cm] (y_g) {출력 $\hat{Y}$ (픽셀/토큰)};
+\draw[->, thick] (x_g) -- (model_g);
+\draw[->, thick] (model_g) -- (y_g);
+\draw[->, dashed, aprlaccent] (y_g.south) ++(0,-0.2) node[font=\tiny, aprlaccent]{$\ell(Y, \hat{Y})$ 최소화};
+
+% Joint Embedding
+\node[font=\small\bfseries, aprlgray, right=3cm of g_title] (je_title) {결합 임베딩 (JEPA 방향)};
+\node[draw, fill=aprlbg, rounded corners, below=0.2cm of je_title, minimum width=1.8cm, minimum height=0.6cm] (x_je) {입력 $X$};
+\node[draw, fill=aprlbg, rounded corners, right=1.8cm of x_je, minimum width=1.8cm, minimum height=0.6cm] (y_je) {컨텍스트 $Y$};
+\node[draw, fill=aprllight!40, rounded corners, below=0.3cm of x_je, minimum width=1.8cm, minimum height=0.6cm] (enc_x) {인코더 $f$};
+\node[draw, fill=aprllight!40, rounded corners, below=0.3cm of y_je, minimum width=1.8cm, minimum height=0.6cm] (enc_y) {인코더 $f$};
+\node[draw, fill=aprlaccent!30, rounded corners, below right=0.3cm and -0.5cm of enc_x, minimum width=2.2cm, minimum height=0.6cm] (pred) {예측기 $g$};
+\draw[->, thick] (x_je) -- (enc_x);
+\draw[->, thick] (y_je) -- (enc_y);
+\draw[->, thick] (enc_x) -- (pred);
+\draw[->, dashed, aprlaccent, thick] (pred) -- (enc_y) node[midway, right, font=\tiny, aprlaccent]{$\ell(z_Y, \hat{z}_Y)$};
+\end{tikzpicture}
+\end{center}
+
+\vspace{0.2em}
+\begin{block}{핵심}
+픽셀을 재구성하지 않고, \textbf{임베딩 공간에서 예측}. \\
+흐릿함 문제를 \alert{원천 회피}: 추상 표현 수준에서만 예측 오차를 정의.
+\end{block}
+\end{frame}
+
+% ============================================================
+\begin{frame}{샴 신경망: 1990년대의 원조}
+\textbf{배경}: 1990년대 초 LeCun, Bell Labs --- 위조 서명 검출
+\begin{columns}[T]
+\begin{column}{0.55\textwidth}
+\textbf{구조}
+\begin{itemize}
+  \item 같은 가중치 공유하는 \textbf{두 개 복제 네트워크}
+  \item 입력: 이미지 쌍 (서명 두 장)
+  \item 출력: 임베딩 벡터 한 쌍 (이미지 생성 아님)
+\end{itemize}
+
+\vspace{0.4em}
+\textbf{학습}
+\begin{itemize}
+  \item \textit{양성 쌍}: 같은 사람의 서명 $\to$ 임베딩 \alert{비슷하게}
+  \item \textit{음성 쌍}: 위조 서명 쌍 $\to$ 임베딩 \alert{다르게}
+  \item 손실: contrastive loss
+\end{itemize}
+
+\vspace{0.3em}
+\begin{block}{통찰}
+``\textit{결합 임베딩}''만으로 서명의 유용한 내부 표현 학습.\\
+생성을 완전히 건너뛴다.
+\end{block}
+\end{column}
+\begin{column}{0.45\textwidth}
+\begin{tikzpicture}[font=\scriptsize, node distance=0.4cm]
+\node[draw, fill=aprlbg, rounded corners, minimum width=1.6cm, minimum height=0.6cm] (s1) {서명 A};
+\node[draw, fill=aprlbg, rounded corners, right=1.2cm of s1, minimum width=1.6cm, minimum height=0.6cm] (s2) {서명 B};
+
+\node[draw, fill=aprllight!30, rounded corners, below=0.4cm of s1, minimum width=1.6cm, minimum height=0.6cm] (n1) {네트워크};
+\node[draw, fill=aprllight!30, rounded corners, below=0.4cm of s2, minimum width=1.6cm, minimum height=0.6cm] (n2) {네트워크};
+\node[below=0.05cm of n1, font=\tiny, aprlgray] {(공유 가중치)};
+
+\node[draw, fill=aprlaccent!20, rounded corners, below=0.4cm of n1, minimum width=1.6cm, minimum height=0.55cm] (e1) {$z_A$};
+\node[draw, fill=aprlaccent!20, rounded corners, below=0.4cm of n2, minimum width=1.6cm, minimum height=0.55cm] (e2) {$z_B$};
+
+\node[draw, fill=aprlblue!20, rounded corners, below=0.3cm of e1, xshift=1.2cm, minimum width=2cm, minimum height=0.55cm] (loss) {$\|z_A - z_B\|$};
+
+\draw[->, thick] (s1) -- (n1);
+\draw[->, thick] (s2) -- (n2);
+\draw[->, thick] (n1) -- (e1);
+\draw[->, thick] (n2) -- (e2);
+\draw[->, thick] (e1) -- (loss);
+\draw[->, thick] (e2) -- (loss);
+\end{tikzpicture}
+\end{column}
+\end{columns}
+\end{frame}
+
+% ============================================================
+\section{Part 6. 표현 붕괴와 그 해법}
+
+\begin{frame}{표현 붕괴: 가장 게으른 답}
+\textbf{문제 설정}: 원본 이미지와 변형 이미지의 임베딩이 비슷해지도록 학습
+
+\vspace{0.3em}
+\textbf{네트워크 입장에서 가장 쉬운 답}:
+\[
+f(x) = \mathbf{c} \quad \forall x \quad \text{(모든 입력에 동일한 상수 벡터 출력)}
+\]
+
+모든 입력에 $[1, 1, \ldots, 1]$을 출력하면?
+\begin{itemize}
+  \item 같은 이미지의 두 변형: $[1,\ldots,1]$ vs $[1,\ldots,1]$ $\to$ 유사도 최대
+  \item 손실 함수: 완전히 만족
+  \item 모델이 배운 것: \alert{아무것도 없음}
+\end{itemize}
+
+\vspace{0.3em}
+이것이 \textbf{표현 붕괴(representation collapse)}.
+
+\vspace{0.4em}
+\textbf{초기 해법: 대조 학습(contrastive learning)}
+\begin{itemize}
+  \item 같은 장면의 다른 뷰: 임베딩 $\uparrow$ 유사
+  \item \alert{다른 이미지들}: 임베딩 $\downarrow$ 달리
+  \item 효과적이지만 대규모 음성 샘플 필요 $\to$ 계산 비용 급증
+\end{itemize}
+\end{frame}
+
+% ============================================================
+\begin{frame}{Barlow Twins: 뉴런 중복성을 줄여라}
+\textbf{착안}: 이론 신경과학자 \textbf{호러스 발로(Horace Barlow, 1961)}의 가설
+
+\vspace{0.2em}
+\begin{block}{발로의 가설}
+동물의 시각 시스템에서 뉴런들은 \textbf{서로 간의 중복 정보를 줄이는} 방향으로 작동한다.
+\end{block}
+
+\vspace{0.4em}
+\textbf{아이디어 (Meta AI, 2021 --- 스테판 데니)}: 이 원리를 네트워크 출력에 적용
+
+\vspace{0.3em}
+\textbf{교차상관 행렬 $\mathcal{C}$ 정의}
+\[
+\mathcal{C}_{ij} = \frac{\sum_b z^A_{b,i} \cdot z^B_{b,j}}{\sqrt{\sum_b (z^A_{b,i})^2} \cdot \sqrt{\sum_b (z^B_{b,j})^2}}
+\]
+배치 $b$에 걸쳐 인코더 A의 $i$번 뉴런과 인코더 B의 $j$번 뉴런 사이의 \textbf{피어슨 상관계수}
+
+\vspace{0.3em}
+\textbf{목표}: $\mathcal{C} \approx I$ (단위 행렬)
+\begin{itemize}
+  \item \textbf{대각 성분} = 1: 같은 이미지의 대응 뉴런 출력은 최대 일관성
+  \item \textbf{비대각 성분} = 0: 서로 다른 뉴런들의 출력은 \alert{중복 정보 없음}
+\end{itemize}
+\end{frame}
+
+% ============================================================
+\begin{frame}{Barlow Twins 손실 함수}
+\[
+\mathcal{L}_{BT} = \underbrace{\sum_i (1 - \mathcal{C}_{ii})^2}_{\text{불변성 항}} + \lambda \underbrace{\sum_{i \neq j} \mathcal{C}_{ij}^2}_{\text{중복성 항}}
+\]
+
+\begin{columns}[T]
+\begin{column}{0.48\textwidth}
+\textbf{불변성 항}
+\begin{itemize}
+  \item 대각 원소를 1로 당김
+  \item 같은 이미지의 변형 쌍에 대해 같은 출력을 요구
+  \item 표현 붕괴 쪽으로 \alert{당기는 힘}
+\end{itemize}
+\end{column}
+\begin{column}{0.48\textwidth}
+\textbf{중복성 항}
+\begin{itemize}
+  \item 비대각 원소를 0으로 당김
+  \item 뉴런들이 \alert{서로 다른 정보} 인코딩하도록 강제
+  \item 표현 붕괴를 \alert{막는 힘}
+\end{itemize}
+\end{column}
+\end{columns}
+
+\vspace{0.8em}
+\textbf{핵심 장점}
+\begin{itemize}
+  \item 음성 샘플(negative pairs) \alert{불필요} $\to$ 대조 학습의 한계 극복
+  \item 배치 크기에 덜 민감
+  \item 강력한 표현을 학습하면서도 붕괴 방지
+\end{itemize}
+\end{frame}
+
+% ============================================================
+\section{Part 7. 표현 품질 측정과 DINO}
+
+\begin{frame}{선형 프로브: 표현 품질을 재는 도구}
+\textbf{방법론}: 사전학습 인코더 위에 단 \textbf{한 층}의 선형 분류기만 추가
+
+\begin{center}
+\begin{tikzpicture}[font=\footnotesize, node distance=0.5cm]
+\node[draw, fill=aprlbg, rounded corners, minimum width=2cm, minimum height=0.65cm] (img) {ImageNet 이미지};
+\node[draw, fill=aprllight!40, rounded corners, right=0.8cm of img, minimum width=2.8cm, minimum height=0.65cm] (enc) {Barlow Twins 인코더};
+\node[below=0.1cm of enc, font=\tiny, aprlaccent] {$\Leftarrow$ \textbf{동결 (frozen)}};
+\node[draw, fill=aprlaccent!30, rounded corners, right=0.8cm of enc, minimum width=2cm, minimum height=0.65cm] (probe) {선형 레이어};
+\node[draw, fill=aprlbg, rounded corners, right=0.8cm of probe, minimum width=1.8cm, minimum height=0.65cm] (out) {1000 class};
+\draw[->, thick] (img) -- (enc);
+\draw[->, thick] (enc) -- (probe);
+\draw[->, thick] (probe) -- (out);
+\end{tikzpicture}
+\end{center}
+
+\vspace{0.3em}
+\textbf{이 테스트가 측정하는 것}:
+``동결된 표현만으로, 선형적으로 분리 가능한 클래스 구조가 잡혀 있는가?''
+
+\vspace{0.5em}
+\begin{center}
+\begin{tabular}{lcl}
+\toprule
+모델 & ImageNet top-1 & 학습 방식 \\
+\midrule
+AlexNet (2012) & 59.3\% & 완전 지도학습 \\
+Barlow Twins (2021) & \alert{73.2\%} & 자기지도 + 선형 프로브 \\
+ViT-L (구글, 2020) & 88.6\% & 완전 지도학습 (새 SOTA) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\vspace{0.3em}
+\footnotesize
+Barlow Twins는 \textbf{라벨 0개}로 AlexNet(완전 지도)을 10\%p 이상 앞섬.\\
+그러나 2020년 지도학습 SOTA와는 여전히 15\%p 격차.
+\end{frame}
+
+% ============================================================
+\begin{frame}{VICReg $\to$ DINO: 자기지도학습이 따라붙다}
+\textbf{Barlow Twins 이후의 흐름}
+\begin{itemize}
+  \item \textbf{VICReg} (Meta, 2022): Barlow Twins의 단순화 버전, 유사한 성능
+  \item \textbf{DINO v1} (FAIR Paris, 2021): 지식 증류(knowledge distillation) 기반 결합 임베딩
+  \item \textbf{DINO v2} (2023): 대규모 큐레이션 데이터 + 레시피 정교화
+  \item \textbf{DINO v3} (2025. 8): \alert{ImageNet top-1 \textbf{88.4\%}} 달성
+\end{itemize}
+
+\vspace{0.4em}
+\begin{block}{DINO v3의 의미}
+\textit{``자기지도 모델이 이미지 분류에서 지도학습 모델과 \textbf{견줄 만한 결과}를 낸 것은 이번이 처음이다.''} --- DINO v3 저자
+\end{block}
+
+\vspace{0.4em}
+\textbf{DINO의 질적 특성}: 각 이미지 패치에 임베딩 벡터 출력
+
+\begin{itemize}
+  \item 손 위치 패치의 임베딩 $\leftrightarrow$ 다른 패치 임베딩 유사도 시각화
+  \item 라벨 없이도 \alert{손, 공, 고양이, 배경}을 깔끔하게 분리
+  \item 별도 세그멘테이션 학습 없이 \textbf{창발적 분할(emergent segmentation)}
+\end{itemize}
+\end{frame}
+
+% ============================================================
+\section{Part 8. JEPA 아키텍처: 세계 모델로}
+
+\begin{frame}{왜 세계 모델인가: 운전하는 십대}
+\begin{columns}[T]
+\begin{column}{0.55\textwidth}
+\textbf{LeCun의 질문 (2022 position paper)}
+
+\begin{block}{}
+\textit{``수백만 시간의 주행 데이터로 우리가 만들어 낼 수 있는 건 테슬라의 레벨 2 시스템 정도예요. 그런데 17살짜리는 \textbf{몇 시간 연습}으로 운전을 배웁니다. 왜?''}
+\end{block}
+
+\vspace{0.5em}
+\textbf{그의 답: 세계 모델(World Model)}
+\begin{itemize}
+  \item 동물은 물리 세계에 대한 \alert{예측 모델}을 갖고 있음
+  \item 자기 행동의 결과를 \textbf{사전에 시뮬레이션}
+  \item 그 위에서 계획(planning)과 추론
+\end{itemize}
+\end{column}
+\begin{column}{0.45\textwidth}
+\begin{tikzpicture}[font=\scriptsize, node distance=0.3cm]
+\fill[aprlbg] (0,0) rectangle (4.5,4.5);
+\node[font=\scriptsize\bfseries, aprlblue] at (2.25,4.2) {인간/동물의 지능};
+\node[draw, rounded corners, fill=aprllight!30, minimum width=3.8cm, minimum height=0.6cm] (wm) at (2.25,3.4) {세계 모델 (World Model)};
+\node[draw, rounded corners, fill=aprlaccent!20, minimum width=3.8cm, minimum height=0.6cm] (plan) at (2.25,2.5) {계획 / 추론};
+\node[draw, rounded corners, fill=aprlgray!20, minimum width=3.8cm, minimum height=0.6cm] (act) at (2.25,1.6) {행동 실행};
+\node[draw, rounded corners, fill=aprlgray!20, minimum width=3.8cm, minimum height=0.6cm] (obs) at (2.25,0.7) {관측 / 지각};
+\draw[->, thick] (wm) -- (plan);
+\draw[->, thick] (plan) -- (act);
+\draw[->, thick] (obs) -- (wm);
+\draw[->, thick, bend right=45] (act.east) to (obs.east);
+\end{tikzpicture}
+\end{column}
+\end{columns}
+\end{frame}
+
+% ============================================================
+\begin{frame}{JEPA 아키텍처 상세}
+\textbf{기본 JEPA: 정적 입력 (I-JEPA 류)}
+
+\vspace{0.3em}
+\begin{center}
+\begin{tikzpicture}[font=\footnotesize, node distance=0.5cm]
+\node[draw, fill=aprlbg, rounded corners, minimum width=2cm, minimum height=0.65cm] (x) {관측 $x$ (현재)};
+\node[draw, fill=aprlbg, rounded corners, right=2.5cm of x, minimum width=2cm, minimum height=0.65cm] (y) {관측 $y$ (목표/미래)};
+\node[draw, fill=aprllight!40, rounded corners, below=0.5cm of x, minimum width=2cm, minimum height=0.65cm] (fx) {인코더 $f_\theta$};
+\node[draw, fill=aprllight!40, rounded corners, below=0.5cm of y, minimum width=2cm, minimum height=0.65cm] (fy) {인코더 $f_\theta$};
+\node[draw, fill=aprlaccent!40, rounded corners, below right=0.5cm and -0.5cm of fx, minimum width=2.3cm, minimum height=0.65cm] (pred) {예측기 $g_\phi$};
+\node[below=0.5cm of pred, font=\scriptsize, aprlaccent] {$\mathcal{L} = \|g_\phi(f_\theta(x)) - \mathrm{sg}(f_\theta(y))\|^2$};
+
+\draw[->, thick] (x) -- (fx);
+\draw[->, thick] (y) -- (fy);
+\draw[->, thick] (fx) -- (pred) node[midway, below, font=\tiny]{$s_x$};
+\draw[->, dashed, thick, aprlaccent] (pred.east) -- ++(0.5,0) -- ++(0,1.2) -- (fy.east) node[midway, right, font=\tiny, aprlaccent]{예측 $\hat{s}_y$};
+\node[above right=0.0cm and 0.0cm of fy, font=\tiny, aprlaccent] {목표 $s_y$ (\texttt{stop\_grad})};
+
+\draw[dashed, aprlgray!60, thick] ($(x.south)+(0,-0.15)$) -- ++(-1.5,0) -- ++(0,-2.4) node[below, font=\tiny, text=aprlgray]{행동 조건 (V-JEPA 확장 시)};
+\draw[->, dashed, aprlgray!60] ($(x.south)+(-1.5,-2.4)$) -- (pred.west);
+\end{tikzpicture}
+\end{center}
+
+\vspace{0.2em}
+\textbf{stop\_grad}: 목표 인코더는 역전파로 학습되지 않음 (EMA 업데이트).\\
+$\Rightarrow$ 표현 붕괴 방지의 또 다른 핵심 설계.
+\end{frame}
+
+% ============================================================
+\begin{frame}{JEPA가 세계 모델이 되는 순간: 행동 조건화}
+\textbf{V-JEPA 2}: 비디오 + 로봇 제어 신호 조건화
+
+\begin{center}
+\begin{tikzpicture}[font=\footnotesize, node distance=0.4cm]
+\node[draw, fill=aprlbg, rounded corners, minimum width=2.2cm, minimum height=0.6cm] (vid) {영상 프레임 $t$};
+\node[draw, fill=aprlgray!20, rounded corners, below=0.3cm of vid, minimum width=2.2cm, minimum height=0.6cm] (act) {제어 신호 $a_t$};
+
+\node[draw, fill=aprllight!40, rounded corners, right=1cm of vid, minimum width=2cm, minimum height=0.6cm] (enc) {인코더};
+\node[draw, fill=aprlaccent!40, rounded corners, below right=0.0cm and 0.6cm of enc, minimum width=2cm, minimum height=0.6cm] (pred) {예측기};
+\node[draw, fill=aprlbg, rounded corners, right=1cm of pred, minimum width=2.2cm, minimum height=0.6cm, align=center] (next) {예측 임베딩\\$\hat{s}_{t+1}$};
+
+\draw[->, thick] (vid) -- (enc);
+\draw[->, thick] (act) -- (pred);
+\draw[->, thick] (enc) -- (pred) node[midway, above, font=\tiny]{$s_t$};
+\draw[->, thick] (pred) -- (next);
+
+% Planning
+\node[below=1.5cm of pred, draw, fill=aprlblue!20, rounded corners, minimum width=4cm, minimum height=0.7cm, align=center] (plan) {최적 제어: 목표 상태까지\\행동 시퀀스 탐색};
+\draw[->, thick, dashed] (next.south) -- ++(0,-0.5) -- ++(-1.5,0) -- (plan.north);
+\end{tikzpicture}
+\end{center}
+
+\vspace{0.3em}
+\textbf{예측기가 배우는 것}: ``제어 신호 $a_t$가 임베딩 공간에서 상태를 어떻게 변화시키는가''
+
+\vspace{0.3em}
+\textbf{계획 사용}: 목표 상태 이미지 $\to$ 목표 임베딩 $s^*$ $\to$ 세계 모델에서 \\
+가상의 행동 시퀀스들을 시뮬레이션해 $\hat{s} \approx s^*$가 되는 시퀀스 선택
+\end{frame}
+
+% ============================================================
+\begin{frame}{세계 모델 = 고전 최적 제어 + 학습된 표현}
+\begin{columns}[T]
+\begin{column}{0.55\textwidth}
+\textbf{르쿤의 표현}
+\begin{block}{}
+\textit{``이건 \textbf{고전적 최적 제어}입니다. 1950년대 후반 소련, 1960년대 초 서구로 거슬러 올라가는.''\\[0.3em]
+``\textbf{고전적이지 않은 부분}: 모델을 머신러닝으로 학습.\\
+\textbf{더더욱 고전적이지 않은 부분}: 입력의 추상 표현까지 \alert{함께} 학습."}
+\end{block}
+
+\vspace{0.4em}
+\textbf{VLA와의 결정적 차이}
+\begin{itemize}
+  \item VLA: 행동 $\to$ 직접 출력
+  \item JEPA WM: 행동 결과를 \alert{사전 예측} + 최적화
+\end{itemize}
+\end{column}
+\begin{column}{0.45\textwidth}
+\begin{tabular}{lcc}
+\toprule
+ & VLA & JEPA \\
+\midrule
+백본 & LLM & 비생성 인코더 \\
+예측 & 행동 token & 임베딩 \\
+계획 & 암묵적 & \alert{명시적} \\
+세계 모델 & 없음 & \alert{있음} \\
+모달리티 & 언어 편향 & 모달리티 무관 \\
+\bottomrule
+\end{tabular}
+
+\vspace{0.6em}
+\footnotesize
+\textit{LeCun}: ``LLM도 VLA도 자기 행동의 결과를 사전에 예측하지 못한다. 그게 내가 불안한 이유다.''
+\end{column}
+\end{columns}
+\end{frame}
+
+% ============================================================
+\section{Part 9. JEPA가 LLM을 대체할 것인가}
+
+\begin{frame}{LeCun 인터뷰: 열린 대화}
+\begin{columns}[T]
+\begin{column}{0.50\textwidth}
+\begin{block}{진행자 Q}
+\textit{``JEPA 같은 세계 모델 기반 접근이 언젠가 LLM을 \textbf{대체}할 거라고 보세요?''}
+\end{block}
+
+\begin{block}{LeCun}
+\textit{``당분간은 서로 다른 문제를 풀 겁니다.''}
+\end{block}
+
+\begin{block}{진행자 Q}
+\textit{``결국에는 LLM을 대체한다는 말씀이시고요?''}
+\end{block}
+
+\begin{block}{LeCun}
+\textit{``네. LLM은 언어를 다루는 데 정말 능숙하지만, 사실상 그게 전부거든요.''}
+\end{block}
+\end{column}
+\begin{column}{0.50\textwidth}
+\textbf{신뢰할 수 있는 에이전트의 조건}
+\begin{enumerate}
+  \item 행동 결과를 \alert{사전에 예측}
+  \item 행동 시퀀스를 \textbf{계획}
+  \item 안전 가드레일을 \alert{보장}
+\end{enumerate}
+
+\vspace{0.6em}
+\begin{alertblock}{LeCun의 핵심 주장}
+\textit{``추론 과정 자체가, 단순한 자기회귀 예측이 아니라 \textbf{탐색(search)}이 되어야 한다.\\
+그게 바로 세계 모델이다.''}
+\end{alertblock}
+\end{column}
+\end{columns}
+\end{frame}
+
+% ============================================================
+\begin{frame}{토론거리 (대학원 수업용)}
+\begin{enumerate}
+  \item Barlow Twins의 ``중복성 줄이기'' 원리는 생물학적으로 타당한가?\\
+        \footnotesize \textit{Sparse coding, Independent Component Analysis와의 관계는?}
+
+  \vspace{0.3em}
+  \normalsize
+  \item \textbf{stop\_grad} 없는 JEPA는 왜 붕괴하는가? 이것이 Bootstrapping 문제와 어떻게 연결되는가?
+
+  \vspace{0.3em}
+  \item DINO v3가 ImageNet top-1 88.4\%를 달성했다. 그렇다면 어떤 태스크에서 자기지도학습이 지도학습보다 아직 열위인가? 그 이유는?
+
+  \vspace{0.3em}
+  \item VLA와 JEPA World Model을 \textbf{하이브리드}로 결합하는 방법을 설계해 본다면?\\
+        \footnotesize \textit{예: $\pi_0$의 Action Expert 대신 JEPA predictor를 쓸 수 있는가?}
+
+  \vspace{0.3em}
+  \normalsize
+  \item \textit{(APRL 연구 관점)} SLAM이 이미 세계 모델의 일종(환경 지도 유지·업데이트)이라고 볼 수 있다. JEPA-style 세계 모델과 classical SLAM의 차이와 보완점은?
+\end{enumerate}
+\end{frame}
+
+% ============================================================
+\begin{frame}{핵심 정리}
+\begin{enumerate}
+  \item \textbf{LeCun의 도발}: LLM은 세계 모델 없이 행동 결과를 예측하지 못함 $\to$ JEPA
+  \vspace{0.2em}
+  \item \textbf{자기지도학습의 역사}:
+    \begin{itemize}
+      \footnotesize
+      \item CNN(라벨) $\to$ 자기지도학습 필요성 $\to$ LLM에서 먼저 폭발 (다음 토큰 예측)
+      \item 언어: 이산 어휘 $\to$ 생성이 잘 작동 / 영상: 연속 픽셀 $\to$ 평균 = 흐릿함
+    \end{itemize}
+  \vspace{0.2em}
+  \item \textbf{결합 임베딩 학습}:
+    \begin{itemize}
+      \footnotesize
+      \item 샴 신경망: 생성 없이 표현 학습 (1990s)
+      \item 표현 붕괴 문제 $\to$ 대조 학습(한계) $\to$ Barlow Twins(교차상관 행렬 = $I$)
+      \item DINO v3: 자기지도 = 지도학습 수준 (ImageNet 88.4\%)
+    \end{itemize}
+  \vspace{0.2em}
+  \item \textbf{JEPA 아키텍처}:
+    \begin{itemize}
+      \footnotesize
+      \item 인코더 $\times 2$ + 예측기: latent space에서 예측
+      \item 행동 조건화 $\to$ 세계 모델 $\to$ 고전 최적 제어 + 학습된 표현
+    \end{itemize}
+  \vspace{0.2em}
+  \item \textbf{미래}: 단기 공존, 장기 대체 --- 세계 모델이 없는 AI에 LeCun이 내기를 걸지 않는 이유
+\end{enumerate}
+\end{frame}
+
+% ============================================================
+\begin{frame}{참고 문헌}
+\footnotesize
+\begin{itemize}
+  \item LeCun (2022) ``A Path Towards Autonomous Machine Intelligence'' (JEPA position paper)
+  \item LeCun et al. (1993) ``Signature Verification Using a Siamese Time Delay Neural Network''
+  \item Radford et al. (2018) ``Improving Language Understanding by Generative Pre-Training'' (GPT-1)
+  \item Zbontar et al. (2021) ``Barlow Twins: Self-Supervised Learning via Redundancy Reduction''
+  \item Bardes et al. (2022) ``VICReg: Variance-Invariance-Covariance Regularization for Self-Supervised Learning''
+  \item Caron et al. (2021) ``Emerging Properties in Self-Supervised Vision Transformers'' (DINO v1)
+  \item Oquab et al. (2023) ``DINOv2: Learning Robust Visual Features without Supervision''
+  \item Assran et al. (2023) ``Self-Supervised Learning from Images with a Joint-Embedding Predictive Architecture'' (I-JEPA)
+  \item Bardes et al. (2024) ``V-JEPA: Latent Video Prediction for Visual Representation Learning''
+  \item Bardes et al. (2025) ``V-JEPA 2: Self-Supervised Video Models Enable Understanding, Prediction and Planning''
+\end{itemize}
+
+\vspace{0.8em}
+\centering
+\textbf{다음 주}: V-JEPA 2 구현 상세 및 VLA와의 실험 비교
+\end{frame}
+
+\end{document}
