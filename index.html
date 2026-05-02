@@ -137,12 +137,14 @@
     .page-wrap {
       position: relative;
       margin-bottom: .6rem;
+      background: #fff;
+      border-radius: 4px;
+      box-shadow: 0 2px 14px rgba(0,0,0,.13);
+      overflow: hidden;
     }
     .page-wrap canvas {
       width: 100%;
       display: block;
-      border-radius: 4px;
-      box-shadow: 0 2px 14px rgba(0,0,0,.13);
       background: #fff;
     }
     .page-num {
@@ -282,10 +284,12 @@
   const main    = document.getElementById('main');
 
   let cancelToken = null;
+  let activeIO    = null;
 
   async function loadPDF(url, title) {
     if (cancelToken) cancelToken.cancelled = true;
-    const token = { cancelled: false };
+    if (activeIO)   { activeIO.disconnect(); activeIO = null; }
+    const token = { cancelled: false, textTasks: [] };
     cancelToken = token;
 
     viewer.innerHTML = '';
@@ -304,32 +308,55 @@
       const n = pdf.numPages;
       tbTitle.textContent = title;
       tbPages.textContent = `${n}페이지`;
-      toolbar.style.display = 'flex';
-      status.style.display = 'none';
 
-      const DPR  = Math.min(window.devicePixelRatio || 1, 2);
+      const DPR = Math.min(window.devicePixelRatio || 1, 2);
 
-      // measure actual content width (excludes padding)
+      // measure content width once (excludes viewer padding)
       const probe = document.createElement('div');
       probe.className = 'page-wrap';
       viewer.appendChild(probe);
       const cssW = probe.getBoundingClientRect().width;
       viewer.removeChild(probe);
 
-      for (let i = 1; i <= n; i++) {
-        if (token.cancelled) return;
+      // fetch all page metadata in parallel — lightweight, just for viewports
+      const pageObjs = await Promise.all(
+        Array.from({ length: n }, (_, i) => pdf.getPage(i + 1))
+      );
+      if (token.cancelled) return;
 
-        const page = await pdf.getPage(i);
-        const vp0  = page.getViewport({ scale: 1 });
+      // pre-allocate every page slot with its true aspect ratio so the
+      // total scroll height is fixed up front — no later pages can shift
+      // into earlier positions while canvases are still painting.
+      const slots = pageObjs.map((page, idx) => {
+        const i = idx + 1;
+        const vp0 = page.getViewport({ scale: 1 });
 
+        const wrap = document.createElement('div');
+        wrap.className = 'page-wrap';
+        wrap.style.aspectRatio = `${vp0.width} / ${vp0.height}`;
+        wrap.dataset.idx = idx;
+
+        const num = document.createElement('div');
+        num.className = 'page-num';
+        num.textContent = `${i} / ${n}`;
+        wrap.appendChild(num);
+
+        viewer.appendChild(wrap);
+        return { page, wrap, vp0, i, rendered: false };
+      });
+
+      status.style.display = 'none';
+      toolbar.style.display = 'flex';
+
+      const renderSlot = async (slot) => {
+        if (slot.rendered || token.cancelled) return;
+        slot.rendered = true;
+
+        const { page, wrap, vp0 } = slot;
         const scale    = (cssW * DPR) / vp0.width;
         const vp       = page.getViewport({ scale });
-
         const cssScale = cssW / vp0.width;
         const vpCSS    = page.getViewport({ scale: cssScale });
-
-        const wrap   = document.createElement('div');
-        wrap.className = 'page-wrap';
 
         const canvas = document.createElement('canvas');
         canvas.width  = vp.width;
@@ -340,30 +367,37 @@
         textLayerDiv.style.width  = vpCSS.width  + 'px';
         textLayerDiv.style.height = vpCSS.height + 'px';
 
-        const num = document.createElement('div');
-        num.className = 'page-num';
-        num.textContent = `${i} / ${n}`;
+        // canvas + text layer go below the .page-num badge
+        wrap.insertBefore(canvas, wrap.firstChild);
+        wrap.insertBefore(textLayerDiv, canvas.nextSibling);
 
-        wrap.appendChild(canvas);
-        wrap.appendChild(textLayerDiv);
-        wrap.appendChild(num);
-        viewer.appendChild(wrap);
+        try {
+          await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+          if (token.cancelled) return;
 
-        await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
-        if (token.cancelled) return;
-
-        // text layer — fire and forget so it doesn't block visual rendering
-        if (typeof renderTextLayer === 'function' && !token.cancelled) {
-          renderTextLayer({
-            textContentSource: page.streamTextContent(),
-            container: textLayerDiv,
-            viewport: vpCSS,
-          });
+          if (typeof renderTextLayer === 'function') {
+            const task = renderTextLayer({
+              textContentSource: page.streamTextContent(),
+              container: textLayerDiv,
+              viewport: vpCSS,
+            });
+            token.textTasks.push(task);
+            task.promise?.catch(() => {});
+          }
+        } catch (e) {
+          if (!token.cancelled) slot.rendered = false;
         }
+      };
 
-        const prog = document.getElementById('prog');
-        if (prog) prog.style.width = `${Math.round(i / n * 100)}%`;
-      }
+      activeIO = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          const slot = slots[Number(entry.target.dataset.idx)];
+          if (slot) renderSlot(slot);
+        }
+      }, { root: main, rootMargin: '600px 0px' });
+
+      for (const slot of slots) activeIO.observe(slot.wrap);
     } catch (err) {
       if (!token.cancelled) {
         status.innerHTML = `<span class="big">⚠️</span><span>오류: ${err.message}</span>`;
