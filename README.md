@@ -3,6 +3,8 @@
 **APRL, DGIST · RT604 Spring 2026**  
 Giseop Kim
 
+**웹 뷰어**: https://gisbi-kim.github.io/robot-intelligence-lectures/
+
 ---
 
 대학원 강의 자료 모음입니다. 각 강의는 Welch Labs 영상을 기반으로 재구성한 슬라이드와 발표 대본으로 구성됩니다.
