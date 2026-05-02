@@ -126,13 +126,39 @@
       color: #555;
     }
     #toolbar strong { color: #222; font-size: .85rem; }
-    #toolbar span   { margin-left: auto; opacity: .6; }
+    #toolbar span   { opacity: .6; }
+
+    .toolbar-actions {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+    .toolbar-btn {
+      font: inherit;
+      padding: .25rem .65rem;
+      border: 1px solid #cfd5dc;
+      background: #fff;
+      color: #333;
+      border-radius: 3px;
+      cursor: pointer;
+      transition: background .12s, border-color .12s, color .12s;
+    }
+    .toolbar-btn:hover  { background: #f4f6f9; border-color: var(--accent); }
+    .toolbar-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
     #viewer {
       max-width: 960px;
       margin: 1.6rem auto 3rem;
       padding: 0 1.2rem;
     }
+    #viewer.two-up {
+      max-width: 1700px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: .6rem;
+    }
+    #viewer.two-up .page-wrap { margin-bottom: 0; }
 
     .page-wrap {
       position: relative;
@@ -258,7 +284,10 @@
 <main id="main">
   <div id="toolbar" style="display:none">
     <strong id="toolbar-title"></strong>
-    <span id="toolbar-pages"></span>
+    <div class="toolbar-actions">
+      <button id="toggle-twoup" class="toolbar-btn" type="button" title="2쪽 보기 토글">2쪽</button>
+      <span id="toolbar-pages"></span>
+    </div>
   </div>
 
   <div id="status">
@@ -276,21 +305,25 @@
   GlobalWorkerOptions.workerSrc =
     'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.worker.min.mjs';
 
-  const viewer  = document.getElementById('viewer');
-  const status  = document.getElementById('status');
-  const toolbar = document.getElementById('toolbar');
-  const tbTitle = document.getElementById('toolbar-title');
-  const tbPages = document.getElementById('toolbar-pages');
-  const main    = document.getElementById('main');
+  const viewer    = document.getElementById('viewer');
+  const status    = document.getElementById('status');
+  const toolbar   = document.getElementById('toolbar');
+  const tbTitle   = document.getElementById('toolbar-title');
+  const tbPages   = document.getElementById('toolbar-pages');
+  const toggleBtn = document.getElementById('toggle-twoup');
+  const main      = document.getElementById('main');
 
-  let cancelToken = null;
-  let activeIO    = null;
+  // Bumped on every state change that should invalidate in-flight renders
+  // (load swap, two-up toggle). Each renderSlot() captures the current
+  // value and bails on every async boundary if it has changed.
+  let renderGen = 0;
+  let activeIO  = null;
+  let current   = null;  // { pdf, slots, n }
 
   async function loadPDF(url, title) {
-    if (cancelToken) cancelToken.cancelled = true;
-    if (activeIO)   { activeIO.disconnect(); activeIO = null; }
-    const token = { cancelled: false, textTasks: [] };
-    cancelToken = token;
+    renderGen++;
+    if (activeIO) { activeIO.disconnect(); activeIO = null; }
+    current = null;
 
     viewer.innerHTML = '';
     toolbar.style.display = 'none';
@@ -301,32 +334,25 @@
     status.style.display = 'flex';
     main.scrollTo(0, 0);
 
+    const myGen = renderGen;
+
     try {
       const pdf = await getDocument(url).promise;
-      if (token.cancelled) return;
+      if (myGen !== renderGen) return;
 
       const n = pdf.numPages;
       tbTitle.textContent = title;
       tbPages.textContent = `${n}페이지`;
 
-      const DPR = Math.min(window.devicePixelRatio || 1, 2);
-
-      // measure content width once (excludes viewer padding)
-      const probe = document.createElement('div');
-      probe.className = 'page-wrap';
-      viewer.appendChild(probe);
-      const cssW = probe.getBoundingClientRect().width;
-      viewer.removeChild(probe);
-
       // fetch all page metadata in parallel — lightweight, just for viewports
       const pageObjs = await Promise.all(
         Array.from({ length: n }, (_, i) => pdf.getPage(i + 1))
       );
-      if (token.cancelled) return;
+      if (myGen !== renderGen) return;
 
-      // pre-allocate every page slot with its true aspect ratio so the
-      // total scroll height is fixed up front — no later pages can shift
-      // into earlier positions while canvases are still painting.
+      // pre-allocate every page slot with its true aspect ratio.
+      // CSS aspect-ratio handles both 1-up and 2-up widths automatically,
+      // so no manual height recalc is needed when the grid toggles.
       const slots = pageObjs.map((page, idx) => {
         const i = idx + 1;
         const vp0 = page.getViewport({ scale: 1 });
@@ -345,66 +371,124 @@
         return { page, wrap, vp0, i, rendered: false };
       });
 
+      current = { pdf, slots, n };
       status.style.display = 'none';
       toolbar.style.display = 'flex';
 
-      const renderSlot = async (slot) => {
-        if (slot.rendered || token.cancelled) return;
-        slot.rendered = true;
-
-        const { page, wrap, vp0 } = slot;
-        const scale    = (cssW * DPR) / vp0.width;
-        const vp       = page.getViewport({ scale });
-        const cssScale = cssW / vp0.width;
-        const vpCSS    = page.getViewport({ scale: cssScale });
-
-        const canvas = document.createElement('canvas');
-        canvas.width  = vp.width;
-        canvas.height = vp.height;
-
-        const textLayerDiv = document.createElement('div');
-        textLayerDiv.className = 'textLayer';
-        textLayerDiv.style.width  = vpCSS.width  + 'px';
-        textLayerDiv.style.height = vpCSS.height + 'px';
-
-        // canvas + text layer go below the .page-num badge
-        wrap.insertBefore(canvas, wrap.firstChild);
-        wrap.insertBefore(textLayerDiv, canvas.nextSibling);
-
-        try {
-          await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
-          if (token.cancelled) return;
-
-          if (typeof renderTextLayer === 'function') {
-            const task = renderTextLayer({
-              textContentSource: page.streamTextContent(),
-              container: textLayerDiv,
-              viewport: vpCSS,
-            });
-            token.textTasks.push(task);
-            task.promise?.catch(() => {});
-          }
-        } catch (e) {
-          if (!token.cancelled) slot.rendered = false;
-        }
-      };
-
-      activeIO = new IntersectionObserver((entries) => {
-        for (const entry of entries) {
-          if (!entry.isIntersecting) continue;
-          const slot = slots[Number(entry.target.dataset.idx)];
-          if (slot) renderSlot(slot);
-        }
-      }, { root: main, rootMargin: '600px 0px' });
-
-      for (const slot of slots) activeIO.observe(slot.wrap);
+      setupLazyRender();
     } catch (err) {
-      if (!token.cancelled) {
+      if (myGen === renderGen) {
         status.innerHTML = `<span class="big">⚠️</span><span>오류: ${err.message}</span>`;
         status.style.display = 'flex';
       }
     }
   }
+
+  function setupLazyRender() {
+    if (!current) return;
+    if (activeIO) activeIO.disconnect();
+    activeIO = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        const slot = current?.slots[Number(entry.target.dataset.idx)];
+        if (slot) renderSlot(slot);
+      }
+    }, { root: main, rootMargin: '600px 0px' });
+    for (const slot of current.slots) activeIO.observe(slot.wrap);
+  }
+
+  async function renderSlot(slot) {
+    if (slot.rendered) return;
+    slot.rendered = true;
+    const myGen = renderGen;
+
+    const { page, wrap, vp0 } = slot;
+    // Measure live width — adapts to 1-up vs 2-up automatically.
+    const cssW = wrap.getBoundingClientRect().width;
+    if (!cssW) { slot.rendered = false; return; }
+
+    const DPR      = Math.min(window.devicePixelRatio || 1, 2);
+    const scale    = (cssW * DPR) / vp0.width;
+    const vp       = page.getViewport({ scale });
+    const cssScale = cssW / vp0.width;
+    const vpCSS    = page.getViewport({ scale: cssScale });
+
+    // remove any leftover canvas/text from a previous mode's render
+    wrap.querySelector('canvas')?.remove();
+    wrap.querySelector('.textLayer')?.remove();
+
+    const canvas = document.createElement('canvas');
+    canvas.width  = vp.width;
+    canvas.height = vp.height;
+
+    const textLayerDiv = document.createElement('div');
+    textLayerDiv.className = 'textLayer';
+    textLayerDiv.style.width  = vpCSS.width  + 'px';
+    textLayerDiv.style.height = vpCSS.height + 'px';
+
+    wrap.insertBefore(canvas, wrap.firstChild);
+    wrap.insertBefore(textLayerDiv, canvas.nextSibling);
+
+    try {
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+      if (myGen !== renderGen) return;
+
+      if (typeof renderTextLayer === 'function') {
+        const task = renderTextLayer({
+          textContentSource: page.streamTextContent(),
+          container: textLayerDiv,
+          viewport: vpCSS,
+        });
+        task.promise?.catch(() => {});
+      }
+    } catch (e) {
+      if (myGen === renderGen) slot.rendered = false;
+    }
+  }
+
+  // Find topmost page currently visible in the main scroll area.
+  function getTopVisibleIdx() {
+    if (!current) return 0;
+    const top = main.getBoundingClientRect().top;
+    for (let i = 0; i < current.slots.length; i++) {
+      const r = current.slots[i].wrap.getBoundingClientRect();
+      if (r.bottom > top + 40) return i;
+    }
+    return 0;
+  }
+
+  function setTwoUp(enabled) {
+    if (!current) {
+      viewer.classList.toggle('two-up', enabled);
+      toggleBtn.classList.toggle('active', enabled);
+      toggleBtn.textContent = enabled ? '1쪽' : '2쪽';
+      return;
+    }
+
+    const topIdx = getTopVisibleIdx();
+
+    renderGen++;  // kill any in-flight renders from the old layout
+    viewer.classList.toggle('two-up', enabled);
+    toggleBtn.classList.toggle('active', enabled);
+    toggleBtn.textContent = enabled ? '1쪽' : '2쪽';
+
+    // reset slots so canvases get regenerated at the new resolution
+    for (const slot of current.slots) {
+      slot.rendered = false;
+      slot.wrap.querySelector('canvas')?.remove();
+      slot.wrap.querySelector('.textLayer')?.remove();
+    }
+
+    // wait one frame so the grid layout settles before we measure widths
+    requestAnimationFrame(() => {
+      setupLazyRender();
+      current?.slots[topIdx]?.wrap.scrollIntoView({ block: 'start' });
+    });
+  }
+
+  toggleBtn.addEventListener('click', () => {
+    setTwoUp(!viewer.classList.contains('two-up'));
+  });
 
   document.querySelectorAll('.nav-item').forEach(item => {
     item.addEventListener('click', () => {
