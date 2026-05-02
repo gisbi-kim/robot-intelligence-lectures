@@ -1,7 +1,6 @@
 # Robot Intelligence Lectures
 
-**APRL, DGIST · RT604 Spring 2026**  
-Giseop Kim
+**APRL, DGIST · Giseop Kim**
 
 **웹 뷰어**: https://gisbi-kim.github.io/robot-intelligence-lectures/
 
