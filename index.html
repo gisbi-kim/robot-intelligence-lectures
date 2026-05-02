@@ -147,13 +147,39 @@
     .toolbar-btn:hover  { background: #f4f6f9; border-color: var(--accent); }
     .toolbar-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
+    .zoom-group {
+      display: flex;
+      align-items: center;
+      gap: .35rem;
+      border: 1px solid #cfd5dc;
+      border-radius: 3px;
+      background: #fff;
+      padding: 0 .15rem;
+    }
+    .zoom-group .toolbar-btn {
+      border: none;
+      padding: .15rem .45rem;
+      font-size: .9em;
+      line-height: 1;
+    }
+    .zoom-label {
+      min-width: 3.4em;
+      text-align: center;
+      font-size: .78rem;
+      color: #555;
+      cursor: pointer;
+      user-select: none;
+    }
+    .zoom-label:hover { color: var(--accent); }
+
     #viewer {
-      max-width: 960px;
+      --zoom: 1;
+      max-width: calc(960px * var(--zoom));
       margin: 1.6rem auto 3rem;
       padding: 0 1.2rem;
     }
     #viewer.two-up {
-      max-width: 1700px;
+      max-width: calc(1700px * var(--zoom));
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: .6rem;
@@ -285,6 +311,11 @@
   <div id="toolbar" style="display:none">
     <strong id="toolbar-title"></strong>
     <div class="toolbar-actions">
+      <div class="zoom-group">
+        <button id="zoom-out" class="toolbar-btn" type="button" title="축소">−</button>
+        <span id="zoom-label" class="zoom-label" title="100%로 초기화">100%</span>
+        <button id="zoom-in"  class="toolbar-btn" type="button" title="확대">+</button>
+      </div>
       <button id="toggle-twoup" class="toolbar-btn" type="button" title="2쪽 보기 토글">2쪽</button>
       <span id="toolbar-pages"></span>
     </div>
@@ -305,13 +336,19 @@
   GlobalWorkerOptions.workerSrc =
     'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.worker.min.mjs';
 
-  const viewer    = document.getElementById('viewer');
-  const status    = document.getElementById('status');
-  const toolbar   = document.getElementById('toolbar');
-  const tbTitle   = document.getElementById('toolbar-title');
-  const tbPages   = document.getElementById('toolbar-pages');
-  const toggleBtn = document.getElementById('toggle-twoup');
-  const main      = document.getElementById('main');
+  const viewer     = document.getElementById('viewer');
+  const status     = document.getElementById('status');
+  const toolbar    = document.getElementById('toolbar');
+  const tbTitle    = document.getElementById('toolbar-title');
+  const tbPages    = document.getElementById('toolbar-pages');
+  const toggleBtn  = document.getElementById('toggle-twoup');
+  const zoomInBtn  = document.getElementById('zoom-in');
+  const zoomOutBtn = document.getElementById('zoom-out');
+  const zoomLabel  = document.getElementById('zoom-label');
+  const main       = document.getElementById('main');
+
+  const ZOOM_STEPS = [0.5, 0.67, 0.75, 0.85, 1, 1.15, 1.25, 1.5, 1.75, 2];
+  let zoom = 1;
 
   // Bumped on every state change that should invalidate in-flight renders
   // (load swap, two-up toggle). Each renderSlot() captures the current
@@ -457,38 +494,58 @@
     return 0;
   }
 
-  function setTwoUp(enabled) {
-    if (!current) {
-      viewer.classList.toggle('two-up', enabled);
-      toggleBtn.classList.toggle('active', enabled);
-      toggleBtn.textContent = enabled ? '1쪽' : '2쪽';
-      return;
-    }
-
+  // Reset every slot, bump generation to kill in-flight renders, then
+  // re-arm the IntersectionObserver and restore the previous top page.
+  // Used by anything that changes layout (two-up toggle, zoom).
+  function rebuildSlots() {
+    if (!current) return;
     const topIdx = getTopVisibleIdx();
 
-    renderGen++;  // kill any in-flight renders from the old layout
-    viewer.classList.toggle('two-up', enabled);
-    toggleBtn.classList.toggle('active', enabled);
-    toggleBtn.textContent = enabled ? '1쪽' : '2쪽';
-
-    // reset slots so canvases get regenerated at the new resolution
+    renderGen++;
     for (const slot of current.slots) {
       slot.rendered = false;
       slot.wrap.querySelector('canvas')?.remove();
       slot.wrap.querySelector('.textLayer')?.remove();
     }
 
-    // wait one frame so the grid layout settles before we measure widths
+    // wait one frame so layout (grid columns, --zoom) settles before
+    // renderSlot measures wrap widths
     requestAnimationFrame(() => {
       setupLazyRender();
       current?.slots[topIdx]?.wrap.scrollIntoView({ block: 'start' });
     });
   }
 
+  function setTwoUp(enabled) {
+    viewer.classList.toggle('two-up', enabled);
+    toggleBtn.classList.toggle('active', enabled);
+    toggleBtn.textContent = enabled ? '1쪽' : '2쪽';
+    rebuildSlots();
+  }
+
+  function setZoom(z) {
+    zoom = Math.max(ZOOM_STEPS[0], Math.min(ZOOM_STEPS[ZOOM_STEPS.length - 1], z));
+    viewer.style.setProperty('--zoom', zoom);
+    zoomLabel.textContent = `${Math.round(zoom * 100)}%`;
+    rebuildSlots();
+  }
+
+  function nudgeZoom(dir) {
+    // jump to the nearest step in the requested direction
+    let idx = ZOOM_STEPS.findIndex(s => s >= zoom - 1e-3);
+    if (idx < 0) idx = ZOOM_STEPS.length - 1;
+    if (dir > 0 && ZOOM_STEPS[idx] <= zoom + 1e-3) idx++;
+    if (dir < 0) idx--;
+    idx = Math.max(0, Math.min(ZOOM_STEPS.length - 1, idx));
+    setZoom(ZOOM_STEPS[idx]);
+  }
+
   toggleBtn.addEventListener('click', () => {
     setTwoUp(!viewer.classList.contains('two-up'));
   });
+  zoomInBtn.addEventListener('click',  () => nudgeZoom(+1));
+  zoomOutBtn.addEventListener('click', () => nudgeZoom(-1));
+  zoomLabel.addEventListener('click',  () => setZoom(1));
 
   document.querySelectorAll('.nav-item').forEach(item => {
     item.addEventListener('click', () => {
